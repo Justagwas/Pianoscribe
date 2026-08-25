@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1500" height="650" viewBox="0 0 1500 650" role="img" aria-labelledby="title desc">
-<title id="title">A2M feature frontend</title>
+<title id="title">Pianoscribe feature frontend</title>
 <desc id="desc">Diagram and equations for channel-aware framing, six analysis windows, real FFT power, mel projection, channel averaging, and logarithmic normalization.</desc>
 <style>
 .title{font:700 28px 'Segoe UI',Arial,sans-serif;fill:#edf4ff}.subtitle{font:400 14px 'Segoe UI',Arial,sans-serif;fill:#9fb0c7}
@@ -13,7 +13,7 @@
 </style>
 <defs><filter id="flowGlow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2.2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
 <rect width="1500" height="650" rx="18" fill="#08111f"/>
-<text x="54.00" y="53.00" class="title" text-anchor="start">How A2M turns sound into model features</text>
+<text x="54.00" y="53.00" class="title" text-anchor="start">How Pianoscribe turns sound into model features</text>
 <text x="54.00" y="79.00" class="subtitle" text-anchor="start">Each frame becomes six complementary spectral views across 229 mel bands</text>
 <g transform="translate(-20 0)">
 <rect x="70.00" y="132.00" width="220.00" height="132.00" rx="12" fill="#101d31" stroke="#38bdf8"/>

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1500" height="690" viewBox="0 0 1500 690" role="img" aria-labelledby="title desc">
-<title id="title">A2M interval decoding and sub-frame timing</title>
-<desc id="desc">Conceptual interval score matrix with a Viterbi path and exact sub-frame timing equation from A2M&#x27;s event refinement.</desc>
+<title id="title">Pianoscribe interval decoding and sub-frame timing</title>
+<desc id="desc">Conceptual interval score matrix with a Viterbi path and exact sub-frame timing equation from Pianoscribe&#x27;s event refinement.</desc>
 <style>
 .title{font:700 28px 'Segoe UI',Arial,sans-serif;fill:#edf4ff}.subtitle{font:400 14px 'Segoe UI',Arial,sans-serif;fill:#9fb0c7}
 .h{font:700 17px 'Segoe UI',Arial,sans-serif;fill:#edf4ff}.label{font:600 13px 'Segoe UI',Arial,sans-serif;fill:#dce8f8}

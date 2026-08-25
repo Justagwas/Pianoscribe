@@ -1,6 +1,6 @@
 # Security Policy
 
-Thank you for helping keep A2M secure.
+Thank you for helping keep Pianoscribe secure.
 
 ## Supported Versions
 

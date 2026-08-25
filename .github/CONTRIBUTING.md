@@ -1,6 +1,6 @@
-# Contributing to A2M
+# Contributing to Pianoscribe
 
-Thanks for your interest in contributing to A2M.
+Thanks for your interest in contributing to Pianoscribe.
 
 ## Before You Start
 
@@ -43,12 +43,12 @@ git checkout -b feature/short-name
 
 ## Local Development
 
-App source lives in the nested `A2M/` folder.
+App source lives in the nested `Pianoscribe/` folder.
 
 ```powershell
-cd A2M
+cd Pianoscribe
 py -m pip install -r requirements.txt
-py A2M.py
+py Pianoscribe.py
 ```
 
 ## Code Guidelines
@@ -57,4 +57,4 @@ py A2M.py
 - Preserve existing behavior unless intentionally changing it.
 - Update docs if behavior or commands changed.
 
-Thanks for helping improve A2M.
+Thanks for helping improve Pianoscribe.

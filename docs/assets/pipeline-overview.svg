@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1500" height="690" viewBox="0 0 1500 690" role="img" aria-labelledby="title desc">
-<title id="title">A2M audio-to-MIDI pipeline</title>
+<title id="title">Pianoscribe audio-to-MIDI pipeline</title>
 <desc id="desc">A source-derived diagram of decoding, feature extraction, model scoring, interval decoding, refinement, stitching, and MIDI writing.</desc>
 <style>
 .title{font:700 28px 'Segoe UI',Arial,sans-serif;fill:#edf4ff}.subtitle{font:400 14px 'Segoe UI',Arial,sans-serif;fill:#9fb0c7}
@@ -15,7 +15,7 @@
 </defs>
 <rect width="1500" height="690" rx="18" fill="#08111f"/>
 <text x="54.00" y="53.00" class="title" text-anchor="start">From a waveform to editable MIDI</text>
-<text x="54.00" y="79.00" class="subtitle" text-anchor="start">The current A2M Piano Engine, shown at user and tensor level</text>
+<text x="54.00" y="79.00" class="subtitle" text-anchor="start">The current Pianoscribe Piano Engine, shown at user and tensor level</text>
 <rect x="50.00" y="122.00" width="338.00" height="190.00" rx="14" fill="#101d31" stroke="#38bdf8"/>
 <circle cx="81.00" cy="153.00" r="17" fill="#38bdf8" opacity="0.20"/>
 <text x="81.00" y="158.00" class="label" text-anchor="middle" fill="#38bdf8">1</text>

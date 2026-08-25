@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1500" height="680" viewBox="0 0 1500 680" role="img" aria-labelledby="title desc">
-<title id="title">A2M overlapping segments and event stitching</title>
+<title id="title">Pianoscribe overlapping segments and event stitching</title>
 <desc id="desc">Timeline showing sixteen-second segments advanced by eight seconds and how overlapping event estimates are joined.</desc>
 <style>
 .title{font:700 28px 'Segoe UI',Arial,sans-serif;fill:#edf4ff}.subtitle{font:400 14px 'Segoe UI',Arial,sans-serif;fill:#9fb0c7}
@@ -8,7 +8,7 @@
 .mono{font:500 13px Consolas,'SFMono-Regular',monospace;fill:#dce8f8}.metric{font:700 22px 'Segoe UI',Arial,sans-serif;fill:#edf4ff}
 </style>
 <rect width="1500" height="680" rx="18" fill="#08111f"/>
-<text x="54.00" y="53.00" class="title" text-anchor="start">Why A2M listens in overlapping sections</text>
+<text x="54.00" y="53.00" class="title" text-anchor="start">Why Pianoscribe listens in overlapping sections</text>
 <text x="54.00" y="79.00" class="subtitle" text-anchor="start">Sixteen seconds of context, advancing eight seconds at a time</text>
 <line x1="130" y1="150" x2="1420" y2="150" stroke="#9fb0c7" stroke-width="2"/>
 <line x1="130.0" y1="142" x2="130.0" y2="158" stroke="#9fb0c7"/>

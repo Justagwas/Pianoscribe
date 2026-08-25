@@ -1,6 +1,6 @@
 # Support
 
-If you need help with A2M, open an issue in this repository.
+If you need help with Pianoscribe, open an issue in this repository.
 
 ## Before opening an issue
 

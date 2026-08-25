@@ -366,24 +366,24 @@ MediaCrate/version.txt
 /MediaCrate/build
 MediaCrate/MediaCrate_config.json
 MediaCrate/MediaCrate.spec
-A2M/version.txt
-/A2M/dist
-A2M/A2M.spec
-/A2M/build
+Pianoscribe/version.txt
+/Pianoscribe/dist
+Pianoscribe/Pianoscribe.spec
+/Pianoscribe/build
 
-# A2M runtime/generated artifacts
-A2M/a2m_config.json
-A2M/PianoModel.pth
-A2M/PianoModel.onnx
+# Pianoscribe runtime/generated artifacts
+Pianoscribe/pianoscribe_config.json
+Pianoscribe/PianoModel.pth
+Pianoscribe/PianoModel.onnx
 
-# A2M local tooling artifacts
+# Pianoscribe local tooling artifacts
 /tools
 
 # Root-level local artifacts from packaging
 /dist/
 /build/
 /*.spec
-/a2m_config.json
+/pianoscribe_config.json
 /PianoModel.pth
 /PianoModel.onnx
 
@@ -396,9 +396,9 @@ venv/
 
 # Local tests
 /tests/
-/A2M/tests
+/Pianoscribe/tests
 *.spec
-/A2M/analysis
+/Pianoscribe/analysis
 /evaluation
 *.ps1
 *.cmd
