@@ -23,9 +23,9 @@
 
 </div>
 
-<p align="center"><b>Desktop audio-to-MIDI conversion tailored for piano recordings</b></p>
+<p align="center"><b>Turn piano recordings into accurate, editable MIDI</b></p>
 
-<p align="center">Transcribes locally on Windows, CPU-first by design, with optional CUDA or DirectML acceleration</p>
+<p align="center">Private local transcription with adjustable performance settings and optional graphics card acceleration</p>
 
 <div align="center">
 
@@ -34,71 +34,54 @@
 [![Last Commit](https://img.shields.io/github/last-commit/Justagwas/A2M/main.svg?style=flat&cacheSeconds=3600)](https://github.com/Justagwas/A2M/commits/main)
 [![Open Issues](https://img.shields.io/github/issues/Justagwas/A2M.svg)](https://github.com/Justagwas/A2M/issues)
 [![Stars](https://img.shields.io/github/stars/Justagwas/A2M.svg?style=flat&cacheSeconds=3600)](https://github.com/Justagwas/A2M/stargazers)
-![Installs (7d)](https://img.shields.io/badge/dynamic/json?style=flat&url=https%3A%2F%2Fdownload-stats-worker.justagwas.workers.dev%2Fdownloads%2Fa2m%3Frange%3Dweek&query=%24.data.weekly.all&label=Installs%20(7d))
+![Downloads (7d)](https://img.shields.io/badge/dynamic/json?style=flat&url=https%3A%2F%2Fdownload-stats-worker.justagwas.workers.dev%2Fdownloads%2Fa2m%3Frange%3Dweek&query=%24.data.weekly.all&label=Downloads%20(7d))
 
 </div>
 
 ## Overview
 
-A2M is a Windows desktop application designed to achieve high transcription accuracy when converting piano recordings into editable MIDI files. The A2M Piano Engine estimates notes, timing, velocity, sustain, and soft pedal events locally, using CPU processing by default with optional CUDA or DirectML acceleration. Configurable CPU usage and GPU memory settings allow system load to be balanced against processing speed. Although runtime depends on recording duration and available hardware, transcription typically completes promptly on suitable systems. Clean solo piano recordings provide the best results.
+A2M is a Windows application that listens to a piano recording and turns the performance into a MIDI file you can open, edit, and arrange. It identifies the notes, their timing and dynamics, and optional pedal use without uploading the recording for analysis.
+
+Clean solo piano recordings provide the clearest results. You can also decide how much of the computer A2M should use, allowing it to work quietly in the background or finish more quickly when resources are available.
 
 ## Basic usage
 
 1. Download and install from the [latest release](https://github.com/Justagwas/A2M/releases/latest/download/A2MSetup.exe).
-2. On first launch, A2M assesses the available hardware and selects appropriate default CPU and GPU resource settings.
-3. If prompted, approve the initial transcription model download.
-4. Click **Choose Audio** and select a local file.
-5. If supported, optionally select GPU execution in **Settings**.
+2. Launch A2M and allow the initial transcription package to download when prompted.
+3. Select **Choose Audio** and open a piano recording.
+4. Choose whether the result should include natural dynamics and pedal information.
+5. Optionally adjust performance settings to suit the computer.
 6. Click **Convert to MIDI**.
-7. Open the result from the configured save location or by selecting **Open output folder** in the footer.
+7. Open the finished MIDI from the output folder.
 
 ## Features
 
-- Local transcription of polyphonic piano recordings.
-- A file picker that recognizes MP3, WAV, FLAC, OGG, M4A, AAC, WMA, AIFF, and AIF files, subject to codec availability.
-- A consistent A2M Piano Engine for note, timing, velocity, sustain pedal, and soft pedal estimation.
-- ONNX Runtime inference on CPU, CUDA, or DirectML.
-- CPU usage controls and GPU memory controls scaled to the available hardware.
-- Optional expressive or uniform MIDI velocity and optional pedal export.
-- Verified model and runtime packages with integrated dependency installation.
-- Configurable output location, interface scaling, and update checks.
-- Cancellation support during downloads, dependency installation, and transcription.
+- Accurate transcription designed for clear solo piano recordings.
+- Private processing with no source recording upload.
+- Support for MP3, WAV, FLAC, OGG, M4A, AAC, WMA, AIFF, and AIF files when the required codec is available.
+- Note timing, dynamics, sustain, and soft pedal recognition.
+- Expressive or even note strength, depending on the intended result.
+- Adjustable CPU use and graphics memory limits.
+- Optional CUDA or DirectML acceleration on supported hardware.
+- Configurable save location, interface size, and update checks.
+- Safe cancellation during setup, downloads, and transcription.
 
-## Technical overview
+## How A2M turns a recording into MIDI
 
-### Audio and feature processing
+A2M works from the sound of the performance itself. It listens in short overlapping sections so that notes near a boundary still retain their musical context.
 
-The source recording is decoded with SoundFile, with audioread available as a fallback. Audio is resampled to 44,100 Hz and analyzed in centered frames of 4,096 samples with a 1,024 sample hop. Six window sizes provide complementary spectral views, which are projected into 229 mel bands and log normalized for model inference.
+Several complementary views of the sound help separate quiet notes, strong attacks, and overlapping harmonies. A2M then chooses the most consistent sequence of notes and pedals, refines their timing and dynamics, and brings every section back together on one continuous timeline.
 
-Recordings are processed in overlapping sections of 16 seconds that advance by 8 seconds. This overlap supplies context near section boundaries and allows section results to be reconstructed on the original recording timeline.
+The completed performance is saved as an editable MIDI file. Existing transcriptions are not overwritten unintentionally.
 
-### Inference and event decoding
-
-The scorer model evaluates possible start and end frame pairs for 88 piano pitches and two pedal tracks. A dynamic programming decoder selects coherent intervals, after which the attribute model estimates velocity and subframe timing adjustments. Events from successive sections are then joined, resolved, and clipped to the duration of the source recording.
-
-### Runtime and acceleration
-
-- A2M runs on CPU by default.
-- CUDA and DirectML execute the same models and decoding process as CPU mode.
-- Optional GPU runtime packs are installed for the current user under:
-  - `%LOCALAPPDATA%\A2M\runtime_packs\cuda`
-  - `%LOCALAPPDATA%\A2M\runtime_packs\dml`
-- Runtime-pack endpoints are defined in [`A2M/a2m/core/config.py`](https://github.com/Justagwas/A2M/blob/main/A2M/a2m/core/config.py).
-
-### MIDI construction
-
-Decoded events are ordered and written as a 960 PPQ MIDI sequence. Notes retain their estimated pitch, timing, and selected velocity treatment. Sustain and soft pedal controller events can be included or excluded before export. A2M assigns a unique output filename so an existing transcription is not overwritten unintentionally.
-
-The model package is obtained from `https://downloads.justagwas.com/a2m/PianoModel.a2m` when required and retained for subsequent use. Its package structure and internal components are validated before inference. CPU execution is included with the application dependencies, while optional GPU components remain separate.
-
-For a visual and detailed technical account of this process, see [How A2M Works](https://github.com/Justagwas/A2M/wiki/How-A2M-Works), the [Audio Processing Pipeline](https://github.com/Justagwas/A2M/wiki/Audio-Processing-Pipeline), and [From Model Output to MIDI](https://github.com/Justagwas/A2M/wiki/From-Model-Output-to-MIDI).
+For a visual explanation, worked results, and the full technical account, visit the [A2M Wiki](https://github.com/Justagwas/A2M/wiki).
 
 ## Project resources
 
 - Project page: <https://www.justagwas.com/projects/a2m>
 - Download page: <https://www.justagwas.com/projects/a2m/download>
 - Documentation: <https://github.com/Justagwas/A2M/wiki>
-- Releases: <https://github.com/Justagwas/a2m/releases>
+- Releases: <https://github.com/Justagwas/A2M/releases>
 
 <details>
 <summary>For Developers</summary>
@@ -129,12 +112,12 @@ py A2M.py
 
 </details>
 
-## Security and Windows warnings
+## Security and OS Warnings
 
 - Windows SmartScreen may display a warning for a new or unsigned release.
 - Obtain A2M only from the official distribution locations:
-  - <https://github.com/Justagwas/a2m/releases>
-  - <https://www.justagwas.com/projects/a2m>
+  - <https://github.com/Justagwas/A2M/releases>
+  - <https://www.justagwas.com/projects/a2m/download>
   - <https://sourceforge.net/projects/a2m/>
 - Refer to [`.github/SECURITY.md`](https://github.com/Justagwas/A2M/blob/main/.github/SECURITY.md) for the security policy and private vulnerability reporting procedure.
 
@@ -147,13 +130,13 @@ Contributions are welcome.
 - Use [Issues](https://github.com/Justagwas/A2M/issues) for defect reports, feature proposals, and questions
 - Wiki: <https://github.com/Justagwas/A2M/wiki>
 
+## Contact
+
+- Email: [email@justagwas.com](mailto:email@justagwas.com)
+- Website: <https://www.justagwas.com/projects/a2m>
+
 ## License
 
 Licensed under the GNU General Public License v3.0 (GPL-3.0).
 
 See [`LICENSE`](https://github.com/Justagwas/A2M/blob/main/LICENSE).
-
-## Contact
-
-- Email: [email@justagwas.com](mailto:email@justagwas.com)
-- Website: <https://www.justagwas.com/projects/a2m>
