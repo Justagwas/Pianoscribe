@@ -1,0 +1,35 @@
+name: Feature proposal
+description: Suggest an improvement to Pianoscribe's transcription or review workflow.
+title: "[Feature]: "
+labels:
+  - enhancement
+assignees:
+  - Justagwas
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What transcription or review need should this proposal address?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Proposed experience
+      description: Describe what the user should be able to do without prescribing an implementation unless it is necessary.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Supporting context
+      description: Explain the musical or practical use case and any compatibility considerations.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false

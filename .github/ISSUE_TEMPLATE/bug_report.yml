@@ -1,0 +1,78 @@
+name: Bug report
+description: Report a reproducible problem with transcription, playback, export, runtimes, or the interface.
+title: "[Bug]: "
+labels:
+  - bug
+assignees:
+  - Justagwas
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a problem. Do not upload private recordings, model files, credentials, or personal data.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the observed result and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Pianoscribe...
+        2. Select...
+        3. Start transcription...
+        4. Observe...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Pianoscribe version
+      placeholder: v3.x.x
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Processing runtime
+      options:
+        - CPU
+        - CUDA
+        - DirectML
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: input
+    attributes:
+      label: Recording context
+      description: Provide the file format, duration, channel count if known, and a general description of the recording. Do not upload the recording itself.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs or screenshots
+      description: Include relevant output after removing paths, names, and other private information.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and read the troubleshooting documentation.
+          required: true
+        - label: I removed private recordings, credentials, model files, and personal information.
+          required: true

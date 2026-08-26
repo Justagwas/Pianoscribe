@@ -1,0 +1,27 @@
+name: Question
+description: Ask about using, configuring, or interpreting Pianoscribe.
+title: "[Question]: "
+labels:
+  - question
+assignees:
+  - Justagwas
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to accomplish?
+    validations:
+      required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: What would you like clarified?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Include the app version, Windows version, selected runtime, relevant settings, and what you have already tried.
+    validations:
+      required: false
