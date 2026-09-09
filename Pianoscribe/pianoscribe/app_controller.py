@@ -20,6 +20,7 @@ from pianoscribe.ui.interaction import is_pointer_control as is_pointer_control_
 from pianoscribe.ui.interaction import sync_pointer_cursor as sync_pointer_cursor_widget
 from pianoscribe.ui.main_window import MainWindow
 from pianoscribe.ui.theme import get_theme
+from pianoscribe.ui.widgets.custom_controls import SquareCheckBoxStyle
 from pianoscribe.ui.windows_titlebar import apply_windows_titlebar_theme
 from pianoscribe.workers.cudnn_install_worker import CudnnInstallWorker
 from pianoscribe.workers.conversion_worker import ConversionWorker
@@ -966,6 +967,22 @@ class AppController(QObject):
         self._apply_windows_titlebar_theme(widget)
         self._apply_dialog_cursors(widget)
 
+    def _apply_update_checkbox_styles(self, dialog: QWidget) -> None:
+        theme = self.window.theme
+        styles: list[SquareCheckBoxStyle] = []
+        for checkbox in dialog.findChildren(QCheckBox):
+            style = SquareCheckBoxStyle(
+                border_color=theme.border,
+                fill_color=theme.accent,
+                check_color=theme.text_primary,
+                size=20,
+                radius=4,
+                parent=checkbox,
+            )
+            checkbox.setStyle(style)
+            styles.append(style)
+        dialog._update_checkbox_styles = styles
+
     @staticmethod
     def _is_pointer_control(widget: object) -> bool:
         return is_pointer_control_widget(widget)
@@ -1077,6 +1094,8 @@ class AppController(QObject):
         later_button.clicked.connect(dialog.reject)
         continue_button.clicked.connect(dialog.accept)
 
+        self._apply_update_checkbox_styles(dialog)
+        self._apply_dialog_cursors(dialog)
         accepted = self._exec_dialog(dialog) == QDialog.Accepted
         auto_install = bool(auto_install_checkbox.isEnabled() and auto_install_checkbox.isChecked())
         return accepted, auto_install
@@ -1139,6 +1158,8 @@ class AppController(QObject):
         abort_button.clicked.connect(dialog.reject)
         continue_button.clicked.connect(dialog.accept)
 
+        self._apply_update_checkbox_styles(dialog)
+        self._apply_dialog_cursors(dialog)
         accepted = self._exec_dialog(dialog) == QDialog.Accepted
         restart = bool(restart_checkbox.isChecked())
         return accepted, restart

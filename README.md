@@ -13,7 +13,7 @@
     width="128"
     height="128"
     alt="Pianoscribe Logo"
-    src="https://github.com/user-attachments/assets/7c94abea-0a17-47fd-bef6-0e00f06260f5"
+    src="Pianoscribe/icon.ico"
   />
 </p>
 
