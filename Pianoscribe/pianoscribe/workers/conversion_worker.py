@@ -22,9 +22,19 @@ class ConversionWorker(WorkerBase):
         self.velocity_mode = str(velocity_mode or 'expressive')
         self.uniform_velocity = int(uniform_velocity)
         self._stop_event = threading.Event()
+        self._commit_lock = threading.Lock()
+        self._committed = False
 
     def stop(self) -> None:
-        self._stop_event.set()
+        with self._commit_lock:
+            if not self._committed:
+                self._stop_event.set()
+
+    def _claim_export_commit(self) -> None:
+        with self._commit_lock:
+            if self._stop_event.is_set():
+                raise InterruptedError('Transcription stopped by user.')
+            self._committed = True
 
     def run(self) -> None:
         started_at = time.monotonic()
@@ -52,6 +62,7 @@ class ConversionWorker(WorkerBase):
                 include_pedals=self.include_pedals,
                 velocity_mode=self.velocity_mode,
                 uniform_velocity=self.uniform_velocity,
+                before_commit=self._claim_export_commit,
             )
 
         def on_success(midi_path):

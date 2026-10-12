@@ -3,6 +3,7 @@ import os
 import sys
 import threading
 import webbrowser
+from pianoscribe.core.config import DONATE_PAGE_URL
 from pathlib import Path
 from PySide6.QtCore import QByteArray, QEvent, QObject, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QPalette
@@ -163,6 +164,7 @@ class AppController(QObject):
         self.window.stopRequested.connect(self.stop_conversion)
         self.window.openDownloadsRequested.connect(self.open_downloads_folder)
         self.window.officialPageRequested.connect(lambda: webbrowser.open(OFFICIAL_PAGE_URL))
+        self.window.donatePageRequested.connect(lambda: webbrowser.open(DONATE_PAGE_URL))
         self.window.devicePreferenceChanged.connect(self._on_device_preference_changed)
         self.window.gpuProviderPreferenceChanged.connect(self._on_gpu_provider_preference_changed)
         self.window.enginePedalsEnabledChanged.connect(self._on_engine_pedals_enabled_changed)
@@ -742,8 +744,7 @@ class AppController(QObject):
             self._clear_gpu_provider_switch_rollback()
         self._apply_runtime_decision(decision, show_message=bool(show_message) and (decision.device_mode != 'gpu'))
         if decision.device_mode == 'gpu':
-            provider_name = runtime_pack_service.provider_display_name(decision.active_provider)
-            self.window.set_progress(100, f'{provider_name} acceleration ready')
+            self.window.set_progress(100, f'GPU acceleration ready')
         else:
             self.window.set_progress(0, 'GPU unavailable; using CPU')
         self._apply_state_transaction(
@@ -893,14 +894,22 @@ class AppController(QObject):
         self._runtime_pack_worker = worker
         thread.start()
 
-    def _create_worker_thread(self, worker: object) -> QThread:
+    def _create_worker_thread(self, worker: object, *, defer_move: bool = False) -> QThread:
         thread = QThread(self)
         move_to_thread = getattr(worker, 'moveToThread', None)
-        if callable(move_to_thread):
+        if callable(move_to_thread) and not defer_move:
             move_to_thread(thread)
         run_slot = getattr(worker, 'run', None)
         if callable(run_slot):
-            thread.started.connect(run_slot)
+            if defer_move:
+                start_gate = threading.Event()
+                thread._worker_start_gate = start_gate
+                def run_after_move() -> None:
+                    start_gate.wait()
+                    run_slot()
+                thread.started.connect(run_after_move, Qt.DirectConnection)
+            else:
+                thread.started.connect(run_slot)
         finished_signal = getattr(worker, 'finished', None)
         delete_later = getattr(worker, 'deleteLater', None)
         if finished_signal is not None:
@@ -1495,8 +1504,8 @@ class AppController(QObject):
             return False
         return True
 
-    def _apply_controls_state(self) -> None:
-        busy = (
+    def _operation_conflict(self) -> bool:
+        return bool(
             self.model_download_in_progress
             or self.runtime_pack_download_in_progress
             or self.cudnn_install_in_progress
@@ -1504,6 +1513,9 @@ class AppController(QObject):
             or self._gpu_validation_in_progress
             or self._update_install_worker is not None
         )
+
+    def _apply_controls_state(self) -> None:
+        busy = self._operation_conflict()
         self.window.set_controls_state(file_enabled=not busy, convert_enabled=not busy and self._can_convert(), stop_enabled=self.transcription_in_progress)
 
     def _update_model_status(self) -> None:
@@ -1715,6 +1727,9 @@ class AppController(QObject):
             self._show_info('cuDNN install in progress', 'cuDNN installation is currently running. Please wait.')
             return False
         if self.transcription_in_progress:
+            return False
+        if self._operation_conflict():
+            self._show_info('Operation in progress', 'Please wait for the active operation to finish.')
             return False
         if not model_service.get_existing_model_path():
             self._prompt_model_download_if_missing()
@@ -2261,22 +2276,12 @@ class AppController(QObject):
             )
             self._try_restart_after_gpu_setup()
             return
-        if (
-            self.transcription_in_progress
-            or self.model_download_in_progress
-            or self.runtime_pack_download_in_progress
-            or self.cudnn_install_in_progress
-        ):
+        if self._operation_conflict():
             self._show_info('Update install blocked', 'Stop active operations before installing updates.')
             return
         self._update_install_fallback_url = str(payload.get('url') or payload.get('download_url') or OFFICIAL_PAGE_URL)
-        self.update_check_in_progress = True
-        self._apply_controls_state()
-        self.window.set_console_text('Preparing update package...\nPlease wait...')
-        self.window.set_progress(0, 'Preparing update...')
-        self._show_update_progress_dialog()
         worker = UpdateInstallWorker(payload=dict(payload))
-        thread = self._create_worker_thread(worker)
+        thread = self._create_worker_thread(worker, defer_move=True)
         worker.progressChanged.connect(self._on_update_install_progress, Qt.QueuedConnection)
         worker.handoffRequested.connect(self._on_update_install_handoff_requested, Qt.QueuedConnection)
         worker.finishedSuccess.connect(self._on_update_install_success, Qt.QueuedConnection)
@@ -2285,7 +2290,31 @@ class AppController(QObject):
         thread.finished.connect(self._on_update_install_worker_finished)
         self._update_install_thread = thread
         self._update_install_worker = worker
-        thread.start()
+        self.update_check_in_progress = True
+        try:
+            self._apply_controls_state()
+            self.window.set_console_text('Preparing update package...\nPlease wait...')
+            self.window.set_progress(0, 'Preparing update...')
+            self._show_update_progress_dialog()
+            thread.start()
+            if not thread.isRunning():
+                raise RuntimeError('Update worker thread could not start.')
+            worker.moveToThread(thread)
+            thread._worker_start_gate.set()
+        except Exception:
+            if thread.isRunning():
+                worker.stop()
+                thread._worker_start_gate.set()
+            else:
+                self._update_install_thread = None
+                self._update_install_worker = None
+                self.update_check_in_progress = self._update_worker is not None
+                worker.deleteLater()
+                thread.deleteLater()
+                self._close_update_progress_dialog()
+                self._apply_controls_state()
+                self._close_if_update_cancel_requested()
+            raise
 
     def _on_update_check_success(self, payload: object) -> None:
         self._finish_update_check(bool(self._update_check_manual), payload)
@@ -2446,7 +2475,7 @@ class AppController(QObject):
                 worker.stop()
             except Exception:
                 pass
-        any_running = False
+        any_running = self._update_worker is not None or self._update_install_worker is not None
         for thread in (self._update_thread, self._update_install_thread):
             if thread is None:
                 continue

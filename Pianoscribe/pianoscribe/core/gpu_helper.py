@@ -1,6 +1,5 @@
 from __future__ import annotations
 import argparse
-import importlib.util
 import json
 import sys
 from dataclasses import dataclass
@@ -53,31 +52,9 @@ def _prime_runtime_path(runtime_root: Path) -> None:
 
 
 def _import_ort(runtime_path: str):
+    from .onnx_runtime_service import _import_onnxruntime
     runtime_str = str(runtime_path or '').strip()
-    runtime_root = _runtime_root(runtime_str) if runtime_str else None
-    if runtime_root is not None:
-        package_dir = runtime_root / 'onnxruntime'
-        capi_dir = package_dir / 'capi'
-        init_file = package_dir / '__init__.py'
-        if not runtime_root.exists():
-            raise RuntimeError('Runtime path does not exist.')
-        if not package_dir.is_dir() or not init_file.is_file() or not capi_dir.is_dir():
-            raise RuntimeError('Runtime package is missing required onnxruntime files.')
-        _prime_runtime_path(runtime_root)
-        for name in [n for n in list(sys.modules) if n == 'onnxruntime' or n.startswith('onnxruntime.')]:
-            sys.modules.pop(name, None)
-        spec = importlib.util.spec_from_file_location('onnxruntime', str(init_file), submodule_search_locations=[str(package_dir)])
-        if spec is None or spec.loader is None:
-            raise RuntimeError('Failed to load ONNX runtime package spec from runtime path.')
-        module = importlib.util.module_from_spec(spec)
-        sys.modules['onnxruntime'] = module
-        spec.loader.exec_module(module)
-        return module
-    try:
-        import onnxruntime as ort
-        return ort
-    except Exception as exc:
-        raise RuntimeError('Runtime package is missing required onnxruntime files.') from exc
+    return _import_onnxruntime(runtime_path=_runtime_root(runtime_str) if runtime_str else None)
 
 
 def _error_payload(reason_code: str, reason_text: str, *, details: str='') -> dict[str, Any]:
@@ -223,8 +200,9 @@ def run_gpu_helper(task: str, *, runtime_path: str, provider: str='', model_path
     if str(provider or '').strip().lower() == 'cuda':
         try:
             from . import cuda_dependency_service
+            ort = _import_ort(runtime_path)
             cuda_dependency_service.ensure_cuda_runtime_bins_in_process_path()
-            cuda_dependency_service.preload_onnxruntime_cuda_dlls()
+            cuda_dependency_service.preload_onnxruntime_cuda_dlls(ort)
         except Exception:
             pass
     normalized = str(task or '').strip().lower()

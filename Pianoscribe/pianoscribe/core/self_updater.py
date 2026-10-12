@@ -16,9 +16,9 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 try:
-    import winreg  # type: ignore[attr-defined]
-except Exception:  # pragma: no cover - non-Windows
-    winreg = None  # type: ignore[assignment]
+    import winreg
+except Exception:
+    winreg = None
 
 _SEMVER_RE = re.compile(r"v?(\d+)\.(\d+)\.(\d+)", re.IGNORECASE)
 _MAX_TEXT_RESPONSE_BYTES = 2 * 1024 * 1024
@@ -43,7 +43,7 @@ _UPDATE_STAGING_PREFIX = "pianoscribe-update-"
 
 
 class _UpdateValidationError(RuntimeError):
-    """A non-transient update payload failure that should not be retried."""
+    pass
 
 
 def normalize_version(version_text: str) -> str:
@@ -180,6 +180,8 @@ class PreparedUpdateInstall:
     setup_path: Path
     staging_root: Path
     requires_elevation: bool = False
+    setup_sha256: str = ""
+    setup_size: int = 0
 
 
 class SelfUpdater:
@@ -264,13 +266,14 @@ class SelfUpdater:
         *,
         stop_event: Event | None = None,
         progress_callback: Callable[[float, str], None] | None = None,
+        before_commit: Callable[[], None] | None = None,
     ) -> str:
         prepared = self.prepare_update(
             check_data,
             stop_event=stop_event,
             progress_callback=progress_callback,
         )
-        self.launch_prepared_update(prepared, restart_after_update=True)
+        self.launch_prepared_update(prepared, restart_after_update=True, stop_event=stop_event, before_commit=before_commit)
         return str(check_data.latest_version or "")
 
     def prepare_update(
@@ -322,6 +325,8 @@ class SelfUpdater:
             setup_path=setup_path,
             staging_root=target_root,
             requires_elevation=(mode_arg == "/ALLUSERS"),
+            setup_sha256=check_data.setup_sha256,
+            setup_size=check_data.setup_size,
         )
 
     def launch_prepared_update(
@@ -329,8 +334,25 @@ class SelfUpdater:
         prepared: PreparedUpdateInstall,
         *,
         restart_after_update: bool,
+        stop_event: Event | None = None,
+        before_commit: Callable[[], None] | None = None,
     ) -> None:
         try:
+            _ensure_not_stopped(stop_event)
+            if not _SHA256_RE.fullmatch(str(prepared.setup_sha256).lower()) or prepared.setup_size <= 0:
+                raise RuntimeError("Prepared installer identity is missing.")
+            if prepared.setup_path.stat().st_size != prepared.setup_size:
+                raise RuntimeError("Prepared installer size changed.")
+            digest = hashlib.sha256()
+            with prepared.setup_path.open('rb') as stream:
+                while chunk := stream.read(1024 * 1024):
+                    _ensure_not_stopped(stop_event)
+                    digest.update(chunk)
+            if digest.hexdigest() != prepared.setup_sha256.lower():
+                raise RuntimeError("Prepared installer integrity changed.")
+            _ensure_not_stopped(stop_event)
+            if before_commit is not None:
+                before_commit()
             self._launch_installer(
                 prepared.setup_path,
                 restart_after_update=bool(restart_after_update),
@@ -665,7 +687,7 @@ class SelfUpdater:
 
     def _launch_installer_elevated(self, setup_path: Path, installer_args: list[str]) -> None:
         try:
-            import ctypes  # type: ignore[import-not-found]
+            import ctypes
         except Exception as exc:
             raise RuntimeError(
                 "Unable to request administrator privileges for all-users update."
@@ -676,7 +698,7 @@ class SelfUpdater:
         show_normal = 1
         try:
             result = int(
-                ctypes.windll.shell32.ShellExecuteW(  # type: ignore[attr-defined]
+                ctypes.windll.shell32.ShellExecuteW(
                     None,
                     operation,
                     str(setup_path),
@@ -866,7 +888,7 @@ class SelfUpdater:
         access: int,
     ) -> dict[str, str] | None:
         try:
-            with winreg.OpenKey(hive, key_path, 0, access) as key:  # type: ignore[arg-type,union-attr]
+            with winreg.OpenKey(hive, key_path, 0, access) as key:
                 return {
                     "InstallLocation": self._read_registry_string(key, "InstallLocation"),
                     "AppPath": self._read_registry_string(key, "Inno Setup: App Path"),
@@ -879,7 +901,7 @@ class SelfUpdater:
     @staticmethod
     def _read_registry_string(key: object, name: str) -> str:
         try:
-            value, _ = winreg.QueryValueEx(key, name)  # type: ignore[union-attr]
+            value, _ = winreg.QueryValueEx(key, name)
         except OSError:
             return ""
         return str(value or "").strip()

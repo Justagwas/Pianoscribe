@@ -89,7 +89,7 @@ For a visual explanation, worked results, and the full technical account, visit 
 ### Requirements
 
 - Windows (primary runtime target).
-- Python 3.11 or later.
+- Python 3.12 or later.
 - Dependencies in [`Pianoscribe/requirements.txt`](https://github.com/Justagwas/Pianoscribe/blob/main/Pianoscribe/requirements.txt).
 
 ### Running From Source

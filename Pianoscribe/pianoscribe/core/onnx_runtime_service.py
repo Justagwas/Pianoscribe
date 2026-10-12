@@ -3,6 +3,7 @@ import importlib
 import importlib.util
 import os
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,39 @@ _DLL_DIR_HANDLES: dict[str, object] = {}
 _CPU_PROVIDER = 'CPUExecutionProvider'
 _CUDA_PROVIDER = 'CUDAExecutionProvider'
 _DML_PROVIDER = 'DmlExecutionProvider'
+_IMPORT_LOCK = threading.RLock()
+
+
+def _loaded_native_paths() -> list[Path]:
+    paths: list[Path] = []
+    if os.name == 'nt':
+        import ctypes
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.GetModuleHandleW.argtypes = [ctypes.c_wchar_p]
+        kernel.GetModuleHandleW.restype = ctypes.c_void_p
+        kernel.GetModuleFileNameW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_uint32]
+        for name in ('onnxruntime_pybind11_state.pyd', 'onnxruntime.dll'):
+            handle = kernel.GetModuleHandleW(name)
+            if handle:
+                buffer = ctypes.create_unicode_buffer(32768)
+                if not kernel.GetModuleFileNameW(handle, buffer, len(buffer)):
+                    raise ctypes.WinError(ctypes.get_last_error())
+                paths.append(Path(buffer.value).resolve())
+    native = sys.modules.get('onnxruntime.capi.onnxruntime_pybind11_state')
+    filename = getattr(native, '__file__', None)
+    if filename:
+        path = Path(filename).resolve()
+        if path not in paths:
+            paths.append(path)
+    return paths
+
+
+def _assert_native_identity(runtime_key: str, paths: list[Path]) -> None:
+    if not runtime_key:
+        return
+    capi = (Path(runtime_key) / 'onnxruntime' / 'capi').resolve()
+    if any(not path.is_relative_to(capi) for path in paths):
+        raise RuntimeError('ONNX runtime backend changed in this session. Please restart Pianoscribe and try again.')
 
 def _normalize_runtime_key(runtime_path: str | Path | None) -> str:
     if not runtime_path:
@@ -105,31 +139,44 @@ def _import_runtime_package_from_path(runtime_root: Path):
 
 def _import_onnxruntime(*, runtime_path: str | Path | None=None):
     global _ONNXRUNTIME_MODULE, _ONNXRUNTIME_RUNTIME_KEY
-    runtime_key = _normalize_runtime_key(runtime_path)
-    if _ONNXRUNTIME_MODULE is not None:
-        if runtime_key != _ONNXRUNTIME_RUNTIME_KEY:
-            raise RuntimeError('ONNX runtime backend changed in this session. Please restart Pianoscribe and try again.')
-        return _ONNXRUNTIME_MODULE
-    _clear_onnxruntime_modules()
-    _release_dll_dir_handles()
-    if runtime_key:
-        runtime_root = Path(runtime_key)
-        _prime_runtime_path(runtime_root)
-        _ONNXRUNTIME_MODULE = _import_runtime_package_from_path(runtime_root)
-    else:
-        _ONNXRUNTIME_MODULE = importlib.import_module('onnxruntime')
-    _ONNXRUNTIME_RUNTIME_KEY = runtime_key
-    return _ONNXRUNTIME_MODULE
+    with _IMPORT_LOCK:
+        runtime_key = _normalize_runtime_key(runtime_path)
+        native_paths = _loaded_native_paths()
+        _assert_native_identity(runtime_key, native_paths)
+        if _ONNXRUNTIME_MODULE is not None:
+            if runtime_key != _ONNXRUNTIME_RUNTIME_KEY:
+                raise RuntimeError('ONNX runtime backend changed in this session. Please restart Pianoscribe and try again.')
+            return _ONNXRUNTIME_MODULE
+        existing = sys.modules.get('onnxruntime')
+        if native_paths:
+            if existing is None:
+                raise RuntimeError('ONNX runtime is already bound without its Python module. Please restart Pianoscribe and try again.')
+            module = existing
+        else:
+            _clear_onnxruntime_modules()
+            _release_dll_dir_handles()
+            if runtime_key:
+                runtime_root = Path(runtime_key)
+                _prime_runtime_path(runtime_root)
+                module = _import_runtime_package_from_path(runtime_root)
+            else:
+                module = importlib.import_module('onnxruntime')
+        _assert_native_identity(runtime_key, _loaded_native_paths())
+        _ONNXRUNTIME_MODULE = module
+        _ONNXRUNTIME_RUNTIME_KEY = runtime_key
+        return module
 
 
 def runtime_backend_state() -> tuple[bool, str]:
-    return (_ONNXRUNTIME_MODULE is not None, str(_ONNXRUNTIME_RUNTIME_KEY or ''))
+    native_paths = _loaded_native_paths() if _ONNXRUNTIME_MODULE is None else []
+    native_root = str(native_paths[0].parent.parent.parent) if native_paths else ''
+    return (_ONNXRUNTIME_MODULE is not None or bool(native_paths), str(_ONNXRUNTIME_RUNTIME_KEY or native_root))
 
 
 def reset_runtime_cache(*, clear_import_cache: bool=False) -> None:
     global _ONNXRUNTIME_MODULE, _ONNXRUNTIME_RUNTIME_KEY
     _PROBE_CACHE.clear()
-    if clear_import_cache and _ONNXRUNTIME_MODULE is None:
+    if clear_import_cache and _ONNXRUNTIME_MODULE is None and not _loaded_native_paths():
         _clear_onnxruntime_modules()
         _release_dll_dir_handles()
         _remove_runtime_sys_paths()
@@ -261,14 +308,14 @@ def create_session(*, model_path: Path | str, device_preference: str, gpu_provid
         raise RuntimeError(f'ONNX Runtime is not available{detail}.')
     requested_gpu = str(device_preference or '').strip().lower() == 'gpu'
     requested_cuda = requested_gpu and str(gpu_provider_preference or 'dml').strip().lower() == 'cuda' and _CUDA_PROVIDER in set(probe.available_providers)
+    ort = _import_onnxruntime(runtime_path=runtime_path)
     if requested_cuda:
         try:
             from . import cuda_dependency_service
             cuda_dependency_service.ensure_cuda_runtime_bins_in_process_path()
-            cuda_dependency_service.preload_onnxruntime_cuda_dlls()
+            cuda_dependency_service.preload_onnxruntime_cuda_dlls(ort)
         except Exception:
             pass
-    ort = _import_onnxruntime(runtime_path=runtime_path)
     provider_order = resolve_provider_order(device_preference=device_preference, gpu_provider_preference=gpu_provider_preference, probe=probe)
     if requested_gpu and (not provider_order or provider_order[0] == _CPU_PROVIDER):
         preferred = str(gpu_provider_preference or 'dml').strip().lower()

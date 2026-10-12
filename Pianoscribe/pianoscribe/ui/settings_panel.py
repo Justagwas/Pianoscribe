@@ -10,6 +10,8 @@ from pianoscribe.core.messages import RUNTIME_LABEL_CUDA_ACTIVE, RUNTIME_LABEL_D
 from pianoscribe.core.messages import RUNTIME_LABEL_MISSING
 from pianoscribe.core.resource_service import gpu_memory_level_for_batch, gpu_memory_presets, normalize_gpu_batch_size, normalize_gpu_memory_max_batch, normalize_performance_mode
 from .interaction import sync_pointer_cursor
+from .footer import add_version_to_header
+from pianoscribe.core.config import APP_VERSION
 from .theme import ThemePalette
 from .widgets.custom_controls import RoundHandleSliderStyle, SquareCheckBoxStyle
 
@@ -303,6 +305,8 @@ class SettingsPanel(QFrame):
 
     def _build_updates_card(self) -> None:
         card, layout = self._create_settings_card('Updates')
+        self.updates_card = card
+        self.version_label = add_version_to_header(card, layout, APP_VERSION)
         self.auto_updates_checkbox = QCheckBox('Automatic updates', card)
         self.auto_updates_checkbox.toggled.connect(self._on_auto_updates_toggled)
         layout.addWidget(self.auto_updates_checkbox)

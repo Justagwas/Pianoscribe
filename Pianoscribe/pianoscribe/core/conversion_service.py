@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
@@ -219,6 +220,7 @@ def convert_audio_to_midi(
     include_pedals: bool = True,
     velocity_mode: str = 'expressive',
     uniform_velocity: int = ENGINE_UNIFORM_VELOCITY_DEFAULT,
+    before_commit: Callable[[], None] | None = None,
 ) -> Path:
     audio_path = Path(audio_file_path)
     if not audio_path.is_file():
@@ -226,6 +228,8 @@ def convert_audio_to_midi(
     _ensure_not_stopped(stop_event)
     midi_name = safe_filename(custom_name if custom_name else audio_path.stem, fallback='midi')
     midi_path = ensure_unique_path(get_output_midi_dir() / f'{midi_name}.mid')
+    staged_path = midi_path.with_name(f'.{midi_path.name}.{uuid.uuid4().hex}.tmp')
+    committed = False
     try:
         events = piano_engine.transcribe_audio_file(
             audio_path,
@@ -236,15 +240,20 @@ def convert_audio_to_midi(
         _ensure_not_stopped(stop_event)
         _write_midi(
             events,
-            midi_path,
+            staged_path,
             include_pedals=include_pedals,
             velocity_mode=velocity_mode,
             uniform_velocity=uniform_velocity,
         )
+        _ensure_not_stopped(stop_event)
+        if before_commit is not None:
+            before_commit()
+        os.replace(staged_path, midi_path)
+        committed = True
         return midi_path
-    except Exception:
-        try:
-            midi_path.unlink(missing_ok=True)
-        except Exception:
-            pass
-        raise
+    finally:
+        for owned_path in ([staged_path] if committed else [staged_path, midi_path]):
+            try:
+                owned_path.unlink(missing_ok=True)
+            except OSError:
+                pass

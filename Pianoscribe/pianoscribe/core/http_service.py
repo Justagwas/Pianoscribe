@@ -15,7 +15,7 @@ _SHA256_RE = re.compile(r'^[0-9a-fA-F]{64}$')
 
 
 class DownloadValidationError(RuntimeError):
-    """A non-transient response or integrity failure that should not be retried."""
+    pass
 
 
 def _ensure_not_stopped(stop_event: Event | None, *, message: str) -> None:
@@ -69,7 +69,7 @@ def download_file_with_retries(url: str, dest_path: Path | str, *, headers_profi
                     if max_byte_count > 0 and total_size is not None and total_size > max_byte_count:
                         raise DownloadValidationError(f'Download is larger than the allowed limit. Limit {max_byte_count}, got {total_size}.')
                     if expected_byte_count > 0 and total_size is not None and total_size != expected_byte_count:
-                        raise _DownloadValidationError(
+                        raise DownloadValidationError(
                             f'Downloaded size mismatch. Expected {expected_byte_count}, got {total_size}.'
                         )
                     downloaded = 0

@@ -157,10 +157,14 @@ def launch_prepared_update(
     prepared: PreparedUpdateInstall,
     *,
     restart_after_update: bool,
+    stop_event: Event | None = None,
+    before_commit: Callable[[], None] | None = None,
 ) -> None:
     _get_updater().launch_prepared_update(
         prepared,
         restart_after_update=bool(restart_after_update),
+        stop_event=stop_event,
+        before_commit=before_commit,
     )
 
 
@@ -173,6 +177,7 @@ def install_update_from_payload(
     *,
     stop_event: Event | None = None,
     progress_callback: Callable[[float, str], None] | None = None,
+    before_commit: Callable[[], None] | None = None,
 ) -> str:
     check_data = _build_check_data_from_payload(payload)
     return str(
@@ -180,6 +185,7 @@ def install_update_from_payload(
             check_data,
             stop_event=stop_event,
             progress_callback=progress_callback,
+            before_commit=before_commit,
         )
         or check_data.latest_version
         or ""

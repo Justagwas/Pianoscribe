@@ -5,8 +5,9 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, QEasingCurve, QPropertyAnimation, QPointF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFontMetrics, QGuiApplication, QIcon, QPainter, QPalette, QPen, QPixmap, QTextCursor
 from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QMainWindow, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSizePolicy, QSlider, QVBoxLayout, QWidget
-from pianoscribe.core.config import APP_NAME, APP_VERSION, UI_SCALE_PERCENT_MAX, UI_SCALE_PERCENT_MIN
+from pianoscribe.core.config import APP_NAME, UI_SCALE_PERCENT_MAX, UI_SCALE_PERCENT_MIN
 from .interaction import is_pointer_control, sync_pointer_cursor
+from .footer import FooterButton, build_footer_icon, build_footer_stylesheet, describe_footer_button
 from .settings_panel import SettingsPanel
 from .theme import DARK_THEME, ThemePalette, build_stylesheet
 from .windows_titlebar import apply_windows_titlebar_theme
@@ -17,6 +18,7 @@ class MainWindow(QMainWindow):
     stopRequested = Signal()
     openDownloadsRequested = Signal()
     officialPageRequested = Signal()
+    donatePageRequested = Signal()
     themeModeChanged = Signal(str)
     devicePreferenceChanged = Signal(str)
     gpuProviderPreferenceChanged = Signal(str)
@@ -204,17 +206,18 @@ class MainWindow(QMainWindow):
 
     def _build_footer(self, root: QWidget, outer: QVBoxLayout) -> None:
         footer = QFrame(root)
+        footer.setObjectName('appFooter')
         footer_layout = QHBoxLayout(footer)
         footer_layout.setContentsMargins(2, 0, 2, 0)
         footer_layout.setSpacing(8)
         self._footer_layout = footer_layout
-        self.theme_toggle_btn = QPushButton('', footer)
+        self.theme_toggle_btn = FooterButton('', footer)
         self.theme_toggle_btn.setObjectName('footerIcon')
         self.theme_toggle_btn.setFlat(True)
         self.theme_toggle_btn.setIconSize(QSize(20, 20))
         self.theme_toggle_btn.clicked.connect(self._on_theme_toggle_clicked)
 
-        self.pin_toggle_btn = QPushButton('', footer)
+        self.pin_toggle_btn = FooterButton('', footer)
         self.pin_toggle_btn.setObjectName('footerIcon')
         self.pin_toggle_btn.setFlat(True)
         self.pin_toggle_btn.setCheckable(True)
@@ -223,25 +226,36 @@ class MainWindow(QMainWindow):
         self.pin_toggle_btn.toggled.connect(self._on_pin_toggled)
         footer_layout.addWidget(self.theme_toggle_btn, 0, Qt.AlignLeft)
         footer_layout.addWidget(self.pin_toggle_btn, 0, Qt.AlignLeft)
-        self.settings_toggle_btn = QPushButton('Show settings', footer)
-        self.settings_toggle_btn.setObjectName('footerLink')
+        self.settings_toggle_btn = FooterButton('', footer)
+        self.settings_toggle_btn.setObjectName('footerIcon')
+        self.settings_toggle_btn.setCheckable(True)
         self.settings_toggle_btn.setFlat(True)
         self.settings_toggle_btn.clicked.connect(lambda: self.set_settings_visible(not self._settings_visible))
         footer_layout.addWidget(self.settings_toggle_btn, 0, Qt.AlignLeft)
         footer_layout.addStretch(1)
-        self.downloads_btn = QPushButton('Open output folder', footer)
-        self.downloads_btn.setObjectName('footerLink')
+        self.downloads_btn = FooterButton('', footer)
+        self.downloads_btn.setObjectName('footerIcon')
         self.downloads_btn.setFlat(True)
         self.downloads_btn.clicked.connect(self.openDownloadsRequested.emit)
         footer_layout.addWidget(self.downloads_btn, 0, Qt.AlignRight)
-        self.official_btn = QPushButton('Official website', footer)
-        self.official_btn.setObjectName('footerLink')
+        self.official_btn = FooterButton('', footer)
+        self.official_btn.setObjectName('footerIcon')
         self.official_btn.setFlat(True)
         self.official_btn.clicked.connect(self.officialPageRequested.emit)
         footer_layout.addWidget(self.official_btn, 0, Qt.AlignRight)
-        self.version_label = QLabel(f'v{APP_VERSION}', footer)
-        self.version_label.setObjectName('footerVersion')
-        footer_layout.addWidget(self.version_label, 0, Qt.AlignRight)
+        self.donate_btn = FooterButton('Donate', footer)
+        self.donate_btn.setObjectName('footerDonate')
+        self.donate_btn.clicked.connect(self.donatePageRequested.emit)
+        footer_layout.addWidget(self.donate_btn, 0, Qt.AlignRight)
+        for button, name, description in (
+            (self.theme_toggle_btn, 'Color theme', 'Switch between light and dark mode'),
+            (self.pin_toggle_btn, 'Keep window on top', 'Pin or unpin this window'),
+            (self.settings_toggle_btn, 'Settings', 'Show or hide settings'),
+            (self.downloads_btn, 'Open output folder', 'Open your MIDI output folder'),
+            (self.official_btn, 'Official website', 'Open the Pianoscribe website in your browser'),
+            (self.donate_btn, 'Donate', 'Support Justagwas with an optional donation in your browser'),
+        ):
+            describe_footer_button(button, name, description)
         outer.addWidget(footer, 0)
 
     def _connect_settings_signals(self) -> None:
@@ -273,6 +287,7 @@ class MainWindow(QMainWindow):
             self.settings_toggle_btn,
             self.downloads_btn,
             self.official_btn,
+            self.donate_btn,
         )
 
     def _apply_interaction_cursors(self) -> None:
@@ -475,13 +490,17 @@ class MainWindow(QMainWindow):
         self.console.setMinimumHeight(self._scaled(86, scale, 68))
         self.console.setMaximumHeight(16777215)
         self.progress_bar.setFixedHeight(self._scaled(26, scale, 18))
-        icon_px = self._scaled(20, scale, 18)
+        icon_px = self._scaled(18, scale, 16)
         self.theme_toggle_btn.setIconSize(QSize(icon_px, icon_px))
 
         self.pin_toggle_btn.setIconSize(QSize(icon_px, icon_px))
         self._refresh_pin_toggle_icon()
-        footer_pt = max(7.5, round(9.5 * scale, 1))
-        self.version_label.setStyleSheet(f'color: {self.theme.text_secondary}; font: 650 {footer_pt:.1f}pt "Segoe UI";')
+        accent = self.theme.accent_hover if self._theme_mode == 'dark' else self.theme.accent
+        for button, name in ((self.settings_toggle_btn, 'settings'), (self.downloads_btn, 'folder'), (self.official_btn, 'website')):
+            button.setIconSize(QSize(icon_px, icon_px))
+            button.setIcon(build_footer_icon(name, self.theme.text_primary, icon_px, checked_color=accent))
+        self.donate_btn.setIconSize(QSize(icon_px, icon_px))
+        self.donate_btn.setIcon(build_footer_icon('heart', accent, icon_px))
         self.settings_panel.setMinimumWidth(self._scaled(208, scale, 162))
         self.settings_panel.set_scale(scale)
         self._settings_min_width = max(self.settings_panel.minimumSizeHint().width(), self.settings_panel.minimumWidth())
@@ -556,6 +575,7 @@ class MainWindow(QMainWindow):
 
     def set_theme(self, theme: ThemePalette, theme_mode: str) -> None:
         self.theme = theme
+        self._theme_mode = 'light' if theme_mode == 'light' else 'dark'
         self.settings_panel.set_theme(theme)
         self._apply_window_layout()
         self.set_theme_mode(theme_mode)
@@ -582,7 +602,7 @@ class MainWindow(QMainWindow):
     def _apply_window_layout(self) -> None:
         geometry = self._available_screen_geometry()
         self._render_scale = self._resolve_render_scale()
-        self.setStyleSheet(build_stylesheet(self.theme, self._render_scale))
+        self.setStyleSheet(build_stylesheet(self.theme, self._render_scale) + build_footer_stylesheet(self.theme, self._render_scale, self._theme_mode))
         self._apply_scaled_metrics(self._render_scale)
         width, height = self._compute_dimensions(self._render_scale)
         max_width = 16777215
@@ -731,7 +751,8 @@ class MainWindow(QMainWindow):
     def set_settings_visible(self, visible: bool, *, animated: bool=True) -> None:
         visible = bool(visible)
         self._settings_visible = visible
-        self.settings_toggle_btn.setText('Hide settings' if visible else 'Show settings')
+        self.settings_toggle_btn.setChecked(visible)
+        self.settings_toggle_btn.setToolTip('Hide settings' if visible else 'Show settings')
         self._settings_animation_expected_end_width = None
         self.settings_animation.stop()
         self._settings_target_width = self._compute_settings_target_width(self._render_scale, self.width())

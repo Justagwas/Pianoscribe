@@ -3,9 +3,10 @@ from pathlib import Path
 
 APP_NAME = 'Pianoscribe'
 APP_SHORT_NAME = 'Pianoscribe'
-APP_VERSION = '3.0.1'
+APP_VERSION = '3.1.0'
 APP_RESTART_EXIT_CODE = 75
 OFFICIAL_PAGE_URL = 'https://www.justagwas.com/projects/pianoscribe/download'
+DONATE_PAGE_URL = 'https://www.justagwas.com/donate'
 CONFIG_FILENAME = 'pianoscribe_config.json'
 LEGACY_APP_SHORT_NAME = 'A2M'
 LEGACY_CONFIG_FILENAME = 'a2m_config.json'

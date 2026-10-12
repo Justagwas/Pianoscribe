@@ -8,7 +8,6 @@ import os
 import re
 import tempfile
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
 from typing import Callable
@@ -22,15 +21,10 @@ from .config import ONNX_CUDA_RUNTIME_PACK_ORT_VERSION
 from .model_service import download_file
 from .paths import dedupe_paths, migrate_legacy_product_data, normalized_path_key, product_data_dir
 from .runtime_artifacts import runtime_root_from_path
+from .cuda_requirements import CudaRuntimeRequirements, read_build_metadata, requirements_for_build
+from .directory_replacement import installation_lock, recover_directory, replace_directory
 
 ProgressCallback = Callable[[float], None]
-
-
-@dataclass(frozen=True, slots=True)
-class CudaRuntimeRequirements:
-    ort_version: str
-    cuda_majors: tuple[int, ...]
-    cudnn_major: int
 
 
 def _parse_version_parts(value: str | None) -> tuple[int, int, int]:
@@ -81,26 +75,39 @@ def _installed_onnxruntime_gpu_version() -> str:
             return str(importlib.metadata.version(package_name))
         except Exception:
             continue
-    try:
-        import onnxruntime as ort
-        providers = tuple(str(provider) for provider in ort.get_available_providers())
-        if 'CUDAExecutionProvider' not in providers:
-            return ''
-        return str(getattr(ort, '__version__', '') or '')
-    except Exception:
-        return ''
+    return ''
+
+
+def _cuda_build_identity(runtime_path: Path | str | None) -> tuple[dict, dict]:
+    raw = str(runtime_path or os.environ.get('PIANOSCRIBE_GPU_RUNTIME_PATH', '') or os.environ.get('A2M_GPU_RUNTIME_PATH', '')).strip()
+    metadata: dict = {}
+    build: dict = {}
+    if raw:
+        root = runtime_root_from_path(Path(raw))
+        path = root / 'runtime_metadata.json'
+        if path.is_file():
+            metadata = json.loads(path.read_text(encoding='utf-8'))
+            if not isinstance(metadata, dict):
+                raise ValueError('Runtime metadata must be an object.')
+        build_path = root / 'onnxruntime/capi/build_and_package_info.py'
+    else:
+        try:
+            distribution = importlib.metadata.distribution('onnxruntime-gpu')
+            build_path = Path(distribution.locate_file('onnxruntime/capi/build_and_package_info.py'))
+        except importlib.metadata.PackageNotFoundError:
+            return metadata, build
+    if build_path.is_file():
+        build = read_build_metadata(build_path.read_text(encoding='utf-8'))
+    for meta_key, build_key in (('ort_version', '__version__'), ('cuda_version', 'cuda_version')):
+        if metadata.get(meta_key) and build.get(build_key) and str(metadata[meta_key]) != build[build_key]:
+            raise ValueError(f'Conflicting runtime {meta_key} metadata.')
+    return metadata, build
 
 
 def get_cuda_runtime_requirements(runtime_path: Path | str | None=None) -> CudaRuntimeRequirements:
-    version = _runtime_metadata_version(runtime_path) or _installed_onnxruntime_gpu_version() or str(ONNX_CUDA_RUNTIME_PACK_ORT_VERSION or '').strip()
-    major, minor, patch = _parse_version_parts(version)
-    if (major, minor) >= (1, 27):
-        return CudaRuntimeRequirements(ort_version=version, cuda_majors=(13,), cudnn_major=9)
-    if (major, minor, patch) >= (1, 18, 1):
-        return CudaRuntimeRequirements(ort_version=version, cuda_majors=(12,), cudnn_major=9)
-    if (major, minor) >= (1, 17):
-        return CudaRuntimeRequirements(ort_version=version, cuda_majors=(12,), cudnn_major=8)
-    return CudaRuntimeRequirements(ort_version=version, cuda_majors=(11,), cudnn_major=8)
+    metadata, build = _cuda_build_identity(runtime_path)
+    version = _runtime_metadata_version(runtime_path) or build.get('__version__') or _installed_onnxruntime_gpu_version() or str(ONNX_CUDA_RUNTIME_PACK_ORT_VERSION or '').strip()
+    return requirements_for_build(version, cuda_version=str(metadata.get('cuda_version') or build.get('cuda_version') or ''), cudnn_major=metadata.get('cudnn_major'))
 
 
 def cuda_requirements_summary(runtime_path: Path | str | None=None) -> str:
@@ -178,6 +185,12 @@ def _windows_cudnn_bin_dirs() -> list[Path]:
             if child.is_dir():
                 candidates.append(child / 'bin')
     local_dependency_cudnn = _dependencies_dir() / 'cudnn'
+    try:
+        with installation_lock(local_dependency_cudnn):
+            recover_directory(local_dependency_cudnn, _locate_cudnn_bin)
+    except Exception as exc:
+        import warnings
+        warnings.warn(f'cuDNN recovery unavailable: {exc}', RuntimeWarning)
     if local_dependency_cudnn.exists():
         for match in local_dependency_cudnn.rglob('cudnn64_9.dll'):
             try:
@@ -205,11 +218,10 @@ def ensure_cuda_runtime_bins_in_process_path() -> list[Path]:
     return added
 
 
-def preload_onnxruntime_cuda_dlls() -> bool:
-    try:
-        import onnxruntime as ort
-    except Exception:
-        return False
+def preload_onnxruntime_cuda_dlls(ort=None) -> bool:
+    if ort is None:
+        import sys
+        ort = sys.modules.get('onnxruntime')
     preload = getattr(ort, 'preload_dlls', None)
     if not callable(preload):
         return False
@@ -232,11 +244,17 @@ def _locate_cudnn_bin(path: Path) -> Path:
     matches = [candidate.parent for candidate in path.rglob('cudnn64_9.dll') if candidate.is_file()]
     if not matches:
         raise RuntimeError('cuDNN package does not contain cudnn64_9.dll.')
-    # Prefer the shallowest match when multiple bins are present.
     return sorted(matches, key=lambda p: len(p.parts))[0]
 
 
 def install_cudnn_runtime(*, progress_callback: ProgressCallback | None=None, stop_event: Event | None=None, runtime_path: Path | str | None=None) -> Path:
+    target = _dependencies_dir() / 'cudnn'
+    with installation_lock(target, stop_event):
+        recover_directory(target, _locate_cudnn_bin)
+        return _install_cudnn_runtime(progress_callback=progress_callback, stop_event=stop_event, runtime_path=runtime_path)
+
+
+def _install_cudnn_runtime(*, progress_callback: ProgressCallback | None=None, stop_event: Event | None=None, runtime_path: Path | str | None=None) -> Path:
     url, expected_sha256, expected_size, max_bytes = selected_cudnn_download(runtime_path)
     url = str(url or '').strip()
     if not url:
@@ -247,13 +265,11 @@ def install_cudnn_runtime(*, progress_callback: ProgressCallback | None=None, st
     token = uuid.uuid4().hex
     stage_dir = _dependencies_dir() / f'.stage-cudnn-{token}'
     final_root = _dependencies_dir() / 'cudnn'
-    backup_root = _dependencies_dir() / f'.backup-cudnn-{token}'
     download_dir = tempfile.TemporaryDirectory(
         prefix='pianoscribe-cudnn-',
         ignore_cleanup_errors=True,
     )
     archive_path = Path(download_dir.name) / 'cudnn.zip'
-    replaced_existing = False
     try:
         _assert_not_stopped(stop_event, message='cuDNN installation was stopped.')
         download_file(
@@ -278,25 +294,8 @@ def install_cudnn_runtime(*, progress_callback: ProgressCallback | None=None, st
         )
         payload_root = _payload_root(stage_dir)
         _locate_cudnn_bin(payload_root)
-        if backup_root.exists():
-            _remove_tree(backup_root)
-        if final_root.exists():
-            final_root.replace(backup_root)
-            replaced_existing = True
-        payload_root.replace(final_root)
-        installed_bin = _locate_cudnn_bin(final_root)
-        if replaced_existing and backup_root.exists():
-            _remove_tree(backup_root)
-        return installed_bin
-    except Exception:
-        if replaced_existing and backup_root.exists():
-            try:
-                if final_root.exists():
-                    _remove_tree(final_root)
-                backup_root.replace(final_root)
-            except Exception:
-                pass
-        raise
+        replace_directory(payload_root, final_root, _locate_cudnn_bin, stop_event)
+        return _locate_cudnn_bin(final_root)
     finally:
         download_dir.cleanup()
         if stage_dir.exists():

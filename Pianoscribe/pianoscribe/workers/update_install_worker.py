@@ -5,7 +5,7 @@ import time
 
 from pianoscribe.core import update_service
 from pianoscribe.core.config import APP_VERSION
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, Slot
 
 from .base_worker import WorkerBase
 
@@ -20,16 +20,32 @@ class UpdateInstallWorker(WorkerBase):
         self._handoff_event = threading.Event()
         self._handoff_continue = False
         self._handoff_restart = True
+        self._commit_lock = threading.Lock()
+        self._committed = False
 
     def stop(self) -> None:
-        self._stop_event.set()
-        self._handoff_event.set()
+        with self._commit_lock:
+            if not self._committed:
+                self._stop_event.set()
+                self._handoff_event.set()
 
     def set_handoff_decision(self, *, continue_update: bool, restart_after_update: bool) -> None:
-        self._handoff_continue = bool(continue_update)
-        self._handoff_restart = bool(restart_after_update)
-        self._handoff_event.set()
+        with self._commit_lock:
+            if self._stop_event.is_set() or self._committed:
+                return
+            self._handoff_continue = bool(continue_update)
+            self._handoff_restart = bool(restart_after_update)
+            self._handoff_event.set()
 
+    def _claim_launch_commit(self) -> None:
+        with self._commit_lock:
+            if self._stop_event.is_set():
+                raise InterruptedError('Update operation stopped.')
+            if self._committed:
+                raise RuntimeError('Installer launch was already committed.')
+            self._committed = True
+
+    @Slot()
     def run(self) -> None:
         def task() -> dict[str, object]:
             install_payload = dict(self.payload)
@@ -44,9 +60,12 @@ class UpdateInstallWorker(WorkerBase):
                     progress_callback=self.emit_progress,
                 )
                 self.emit_progress(99.0, 'Ready to hand off to installer. Waiting for your confirmation...')
-                self._handoff_continue = False
-                self._handoff_restart = True
-                self._handoff_event.clear()
+                with self._commit_lock:
+                    if self._stop_event.is_set():
+                        raise InterruptedError('Update operation stopped.')
+                    self._handoff_continue = False
+                    self._handoff_restart = True
+                    self._handoff_event.clear()
                 self.handoffRequested.emit(
                     {
                         'version': str(getattr(prepared, 'latest_version', '') or ''),
@@ -57,7 +76,12 @@ class UpdateInstallWorker(WorkerBase):
                     if self._stop_event.is_set():
                         raise InterruptedError('Update operation stopped.')
                     time.sleep(0.05)
-                if not self._handoff_continue:
+                with self._commit_lock:
+                    if self._stop_event.is_set():
+                        raise InterruptedError('Update operation stopped.')
+                    continue_update = self._handoff_continue
+                    restart = self._handoff_restart
+                if not continue_update:
                     update_service.discard_prepared_update(prepared)
                     return {
                         'status': 'aborted',
@@ -65,7 +89,9 @@ class UpdateInstallWorker(WorkerBase):
                     }
                 update_service.launch_prepared_update(
                     prepared,
-                    restart_after_update=bool(self._handoff_restart),
+                    restart_after_update=restart,
+                    stop_event=self._stop_event,
+                    before_commit=self._claim_launch_commit,
                 )
                 return {
                     'status': 'ready',

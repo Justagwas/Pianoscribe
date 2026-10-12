@@ -18,6 +18,7 @@ from .config import ONNX_CUDA_RUNTIME_PACK_DOWNLOAD_SIZE, ONNX_CUDA_RUNTIME_PACK
 from .model_service import download_file, get_existing_model_path
 from .paths import app_dir, migrate_legacy_product_data, product_data_dir
 from .runtime_artifacts import runtime_root_from_path as _shared_runtime_root_from_path
+from .directory_replacement import installation_lock, recover_directory, replace_directory
 
 _PROVIDERS = ('cuda', 'dml')
 
@@ -224,6 +225,9 @@ def validate_pack_root(path: Path, expected_provider: str) -> None:
     detected_provider = gpu_runtime_service.detect_runtime_provider(runtime_root)
     if detected_provider != provider:
         raise RuntimeError(f'Runtime pack does not expose required {provider_display_name(provider)} provider.')
+    if provider == 'cuda':
+        from .cuda_dependency_service import get_cuda_runtime_requirements
+        get_cuda_runtime_requirements(runtime_root)
 
 
 def _installed_pack_for_provider(provider: str) -> str:
@@ -231,11 +235,13 @@ def _installed_pack_for_provider(provider: str) -> str:
         pack_dir = provider_pack_dir(provider)
     except Exception:
         return ''
-    if not pack_dir.exists():
-        return ''
     try:
-        validate_pack_root(pack_dir, provider)
-    except Exception:
+        with installation_lock(pack_dir):
+            if not recover_directory(pack_dir, lambda path: validate_pack_root(path, provider)):
+                return ''
+    except Exception as exc:
+        import warnings
+        warnings.warn(f'Runtime pack recovery unavailable: {exc}', RuntimeWarning)
         return ''
     return str(pack_dir)
 
@@ -249,6 +255,13 @@ def resolve_installed_pack(provider_pref: str) -> tuple[str, str]:
 
 
 def download_and_install_pack(provider: str, *, progress_callback=None, stop_event: Event | None=None) -> Path:
+    target = provider_pack_dir(provider)
+    with installation_lock(target, stop_event):
+        recover_directory(target, lambda path: validate_pack_root(path, provider))
+        return _download_and_install_pack(provider, progress_callback=progress_callback, stop_event=stop_event)
+
+
+def _download_and_install_pack(provider: str, *, progress_callback=None, stop_event: Event | None=None) -> Path:
     normalized_provider = _normalize_provider(provider)
     if not normalized_provider:
         raise RuntimeError("Provider must be 'cuda' or 'dml'.")
@@ -258,13 +271,11 @@ def download_and_install_pack(provider: str, *, progress_callback=None, stop_eve
     token = uuid.uuid4().hex
     stage_dir = runtime_packs_root() / f'.stage-{normalized_provider}-{token}'
     final_dir = provider_pack_dir(normalized_provider)
-    backup_dir = runtime_packs_root() / f'.backup-{normalized_provider}-{token}'
     download_dir = tempfile.TemporaryDirectory(
         prefix=f'pianoscribe-onnx-{normalized_provider}-',
         ignore_cleanup_errors=True,
     )
     archive_path = Path(download_dir.name) / f'pianoscribe-onnx-{normalized_provider}.zip'
-    replaced_existing = False
     try:
         _assert_not_stopped(stop_event, message='Runtime pack download stopped by user.')
         expected_sha256 = _require_provider_pack_sha256(normalized_provider)
@@ -290,22 +301,7 @@ def download_and_install_pack(provider: str, *, progress_callback=None, stop_eve
         runtime_root = _runtime_root_from_path(stage_dir)
         validate_pack_root(runtime_root, normalized_provider)
         validate_pack_in_helper(runtime_root, normalized_provider)
-        if backup_dir.exists():
-            _remove_tree(backup_dir)
-        if final_dir.exists():
-            final_dir.replace(backup_dir)
-            replaced_existing = True
-        runtime_root.replace(final_dir)
-        if replaced_existing and backup_dir.exists():
-            _remove_tree(backup_dir)
-        return final_dir
-    except Exception:
-        if replaced_existing and backup_dir.exists() and (not final_dir.exists()):
-            try:
-                backup_dir.replace(final_dir)
-            except Exception:
-                pass
-        raise
+        return replace_directory(runtime_root, final_dir, lambda path: validate_pack_root(path, normalized_provider), stop_event)
     finally:
         download_dir.cleanup()
         if stage_dir.exists():

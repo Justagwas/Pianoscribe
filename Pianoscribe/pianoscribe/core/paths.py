@@ -87,8 +87,6 @@ def legacy_config_paths() -> list[Path]:
             roaming_root / 'Pianoscribe' / CONFIG_FILENAME,
             localappdata_dir() / LEGACY_APP_SHORT_NAME / LEGACY_CONFIG_FILENAME,
             roaming_root / LEGACY_APP_SHORT_NAME / LEGACY_CONFIG_FILENAME,
-            # Earlier A2M releases also stored configuration in the user profile.
-            # Keep this last so a newer configuration wins when both exist.
             Path.home() / '.pianoscribe_config.json',
             Path.home() / '.a2m_config.json',
         ),

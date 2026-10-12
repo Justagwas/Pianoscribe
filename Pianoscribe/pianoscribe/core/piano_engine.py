@@ -33,6 +33,14 @@ class PianoEvent:
 
 
 @dataclass(slots=True, frozen=True)
+class _SegmentEvent:
+    event: PianoEvent
+    onset_sample: int
+    end_sample: int
+    segment_offset: int = 0
+
+
+@dataclass(slots=True, frozen=True)
 class PianoModelSpec:
     bundle_dir: Path
     scorer_path: Path
@@ -272,6 +280,26 @@ def _events_from_segment(
     last_frame_index: int,
     stop_event: Event | None,
 ) -> tuple[list[PianoEvent], list[int]]:
+    decoded, positions = _segment_events_with_provenance(
+        context, paths, attributes_session, symbols=symbols,
+        frame_duration=frame_duration, last_frame_index=last_frame_index,
+        stop_event=stop_event,
+    )
+    return [item.event for item in decoded], positions
+
+
+def _segment_events_with_provenance(
+    context: np.ndarray,
+    paths: list[list[tuple[int, int]]],
+    attributes_session,
+    *,
+    symbols: tuple[int, ...],
+    frame_duration: float,
+    last_frame_index: int,
+    stop_event: Event | None,
+    sample_offset: int = 0,
+    hop_size: int = 1,
+) -> tuple[list[_SegmentEvent], list[int]]:
     rows = [(symbol_index, start, end) for symbol_index, intervals in enumerate(paths) for start, end in intervals]
     if not rows:
         return [], [0] * len(symbols)
@@ -286,7 +314,7 @@ def _events_from_segment(
     velocities = np.argmax(velocity_logits, axis=-1).astype(np.int32)
     offsets = _continuous_bernoulli_offset(np.asarray(refined_logits)[:, :2])
     presence = np.asarray(refined_logits)[:, 2:] > 0
-    events: list[PianoEvent] = []
+    events: list[_SegmentEvent] = []
     last_positions: list[int] = []
     cursor = 0
     for symbol_index, intervals in enumerate(paths):
@@ -299,20 +327,60 @@ def _events_from_segment(
             end = max(end, start + 1e-8)
             last_end = end
             event = PianoEvent(
-                    start=start,
-                    end=end,
-                    pitch=int(symbols[symbol_index]),
-                    velocity=int(velocities[cursor]),
-                    has_onset=bool(start_frame > 0 or presence[cursor, 0]),
-                    has_offset=bool(end_frame < last_frame_index or presence[cursor, 1]),
+                start=start,
+                end=end,
+                pitch=int(symbols[symbol_index]),
+                velocity=int(velocities[cursor]),
+                has_onset=bool(start_frame > 0 or presence[cursor, 0]),
+                has_offset=bool(end_frame < last_frame_index or presence[cursor, 1]),
             )
-            events.append(event)
+            events.append(_SegmentEvent(event, sample_offset + start_frame * hop_size, sample_offset + end_frame * hop_size, sample_offset))
             if event.has_offset:
                 last_position = int(end_frame)
             cursor += 1
         last_positions.append(last_position)
-    events.sort(key=lambda event: (event.start, event.end, event.pitch))
+    events.sort(key=lambda item: (item.event.start, item.event.end, item.event.pitch))
     return events, last_positions
+
+
+def _stitch_segment_event(item: _SegmentEvent, existing: list[PianoEvent], last_attacks: dict[tuple[int, bool], _SegmentEvent]) -> None:
+    event = item.event
+    if event.pitch >= 0 and event.has_onset:
+        attack_key = (event.pitch, item.onset_sample == item.end_sample)
+        prior = last_attacks.get(attack_key)
+        if prior is not None and prior.segment_offset != item.segment_offset and prior.onset_sample == item.onset_sample:
+            previous = prior.event
+            if event.has_offset:
+                previous.end = max(previous.start + 1e-8, event.end)
+                previous.has_offset = True
+            elif not previous.has_offset:
+                previous.end = max(previous.end, event.end)
+            last_attacks[attack_key] = _SegmentEvent(previous, item.onset_sample, item.end_sample, item.segment_offset)
+            return
+    if existing:
+        previous = existing[-1]
+        if event.pitch < 0:
+            if event.start < previous.end:
+                if event.has_onset:
+                    existing[-1] = event
+                else:
+                    previous.has_offset = event.has_offset
+                    previous.end = max(previous.end, event.end)
+                return
+            if event.has_onset:
+                existing.append(event)
+            return
+        if event.start < previous.end:
+            if not event.has_onset:
+                previous.has_offset = event.has_offset
+                previous.end = max(previous.end, event.end)
+                return
+            previous.end = event.start
+            previous.has_offset = True
+    if event.has_onset:
+        existing.append(event)
+        if event.pitch >= 0:
+            last_attacks[attack_key] = item
 
 
 def _resolve_overlaps(events: list[PianoEvent]) -> list[PianoEvent]:
@@ -385,6 +453,7 @@ def transcribe_audio_array(
     segment_starts = list(range(0, channels.shape[-1], step_samples))
     forced_start = [int(math.floor(padding_seconds * spec.sample_rate / spec.hop_size))] * len(spec.symbols)
     events_by_type: dict[int, list[PianoEvent]] = defaultdict(list)
+    last_attacks: dict[tuple[int, bool], _SegmentEvent] = {}
     frame_duration = spec.hop_size / float(spec.sample_rate)
     last_frame_index = round(segment_samples / spec.hop_size)
     requested_batch = runtime_service.get_gpu_batch_size() if device == 'gpu' else 1
@@ -438,7 +507,7 @@ def transcribe_audio_array(
             scores = interval_array[:, :, batch_index, :]
             noise = skip_array[:, batch_index, :]
             paths, _decoded_positions = _decode_viterbi_backward(scores, noise, forced_start, stop_event=stop_event)
-            segment_events, last_positions = _events_from_segment(
+            segment_events, last_positions = _segment_events_with_provenance(
                 context_array[batch_index:batch_index + 1],
                 paths,
                 attributes_session,
@@ -446,22 +515,17 @@ def transcribe_audio_array(
                 frame_duration=frame_duration,
                 last_frame_index=last_frame_index,
                 stop_event=stop_event,
+                sample_offset=start_sample - pad_samples,
+                hop_size=spec.hop_size,
             )
             forced_start = [max(position - int(step_samples / spec.hop_size), 0) for position in last_positions]
             begin_time = start_sample / float(spec.sample_rate) - padding_seconds
-            for event in segment_events:
+            for item in segment_events:
+                event = item.event
                 event.start = max(0.0, event.start + begin_time)
                 event.end = max(event.start, event.end + begin_time)
                 existing = events_by_type[event.pitch]
-                if existing and event.start < existing[-1].end:
-                    if event.has_onset:
-                        existing[-1] = event
-                    else:
-                        existing[-1].has_offset = event.has_offset
-                        existing[-1].end = max(existing[-1].end, event.end)
-                    continue
-                if event.has_onset:
-                    existing.append(event)
+                _stitch_segment_event(item, existing, last_attacks)
             if progress_callback:
                 progress_callback(segment_index + 1, len(segment_starts))
         segment_cursor += batch_count

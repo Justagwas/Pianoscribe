@@ -59,7 +59,6 @@ def inspect_runtime_inventory(
     configured_runtime_path: str | Path | None = None,
     status_callback: StatusCallback | None = None,
 ) -> RuntimeInventory:
-    """Inspect both GPU backends without importing ONNX Runtime into the UI process."""
 
     manager = GpuRuntimeManager()
     inventory = RuntimeInventory()
